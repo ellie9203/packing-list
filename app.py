@@ -5,8 +5,7 @@ import io
 st.set_page_config(page_title="📦 Packing Detail Generator", layout="wide")
 st.title("📦 Packing Detail Generator")
 st.markdown("""
-이 앱은 Raw Data 엑셀 파일을 업로드하면, 팔레트 ID + 제조 LOT 기준으로 완박스 수량과 낱개 수량을 자동으로 계산하고,
-Net/Gross Weight 및 사이즈 정보까지 포함된 포맷화된 Packing Detail 파일을 생성합니다.
+이 앱은 Raw Data 엑셀 파일을 업로드하면, 팔레트 ID + 제조 LOT 기준으로 완박스 수량과 낱개 수량을 자동으로 계산하여 포맷화된 Packing Detail 파일을 생성합니다.
 """)
 
 uploaded_file = st.file_uploader("🗂️ 엑셀 파일을 업로드 해주세요", type=["xlsx"])
@@ -16,20 +15,12 @@ def process_file(file):
 
     df = df[df.iloc[:, 5].notna()]  # 팔레트 ID 비어있지 않은 행만
 
-    # 주요 컬럼 매핑
     df['Pallet_ID'] = df.iloc[:, 5].astype(str)
     df['Material_Name'] = df.iloc[:, 11].astype(str)
     df['Box_Qty'] = pd.to_numeric(df.iloc[:, 23], errors='coerce')
     df['PCS'] = pd.to_numeric(df.iloc[:, 24], errors='coerce')
     df['Lot_No'] = df.iloc[:, 30].astype(str).str.split(".").str[0]  # 소수점 뒤 제거
     df['Right7'] = df['Pallet_ID'].apply(lambda x: str(x)[-7:])
-
-    # 순중량 ~ 사이즈 컬럼 추가 (AG~AK = 32~36)
-    df['Net_Weight'] = pd.to_numeric(df.iloc[:, 32], errors='coerce')
-    df['Gross_Weight'] = pd.to_numeric(df.iloc[:, 33], errors='coerce')
-    df['Length'] = pd.to_numeric(df.iloc[:, 34], errors='coerce')
-    df['Width'] = pd.to_numeric(df.iloc[:, 35], errors='coerce')
-    df['Height'] = pd.to_numeric(df.iloc[:, 36], errors='coerce')
 
     result_rows = []
 
@@ -39,12 +30,6 @@ def process_file(file):
         box_qty = group['Box_Qty'].iloc[0]
         material_name = group['Material_Name'].iloc[0]
         right7 = group['Right7'].iloc[0]
-
-        net_weight = group['Net_Weight'].iloc[0]
-        gross_weight = group['Gross_Weight'].iloc[0]
-        length = group['Length'].iloc[0]
-        width = group['Width'].iloc[0]
-        height = group['Height'].iloc[0]
 
         full_boxes = group[group['PCS'] == box_qty]
         partials = group[group['PCS'] != box_qty]
@@ -58,12 +43,7 @@ def process_file(file):
                 "Right7": right7,
                 "Box_Qty": box_qty,
                 "Full_Box_Total": full_box_total,
-                "Lot_No": lot,
-                "Net_Weight": net_weight,
-                "Gross_Weight": gross_weight,
-                "Length": length,
-                "Width": width,
-                "Height": height
+                "Lot_No": lot
             })
 
         if not partials.empty:
@@ -74,12 +54,7 @@ def process_file(file):
                 "Right7": '',
                 "Box_Qty": '',
                 "Full_Box_Total": partial_sum,
-                "Lot_No": '',
-                "Net_Weight": '',
-                "Gross_Weight": '',
-                "Length": '',
-                "Width": '',
-                "Height": ''
+                "Lot_No": ''
             })
 
     result_df = pd.DataFrame(result_rows)
@@ -100,4 +75,4 @@ if uploaded_file is not None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     except Exception as e:
-        st.error(f"⚠️ 에러가 발생했습니다: {e}")
+        st.error(f"⚠️ 에러가 발생했습니다: {e}") 
