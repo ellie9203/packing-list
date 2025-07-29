@@ -1,84 +1,103 @@
 import streamlit as st
 import pandas as pd
+import io
 
-def clean_lot_number(lot):
-    try:
-        return str(int(float(lot)))
-    except:
-        return str(lot)
+st.set_page_config(page_title="📦 Packing Detail Generator", layout="wide")
+st.title("📦 Packing Detail Generator")
+st.markdown("""
+이 앱은 Raw Data 엑셀 파일을 업로드하면, 팔레트 ID + 제조 LOT 기준으로 완박스 수량과 낱개 수량을 자동으로 계산하고,
+Net/Gross Weight 및 사이즈 정보까지 포함된 포맷화된 Packing Detail 파일을 생성합니다.
+""")
 
-def process_excel(file):
-    df = pd.read_excel(file, header=0)
+uploaded_file = st.file_uploader("🗂️ 엑셀 파일을 업로드 해주세요", type=["xlsx"])
 
-    # 필요한 열 설정
-    df = df.rename(columns=lambda x: str(x).strip())
-    df = df[df['PCS'].notnull()]  # PCS 있는 행만
+def process_file(file):
+    df = pd.read_excel(file, header=0, engine='openpyxl')
 
-    # 컬럼 이름 강제 지정
-    col_palette_id = df.columns[4]    # E
-    col_item_name = df.columns[10]    # K
-    col_box_qty = df.columns[22]      # W
-    col_pcs = df.columns[23]          # X
-    col_lot = df.columns[29]          # AD
+    df = df[df.iloc[:, 5].notna()]  # 팔레트 ID 비어있지 않은 행만
 
-    df[col_lot] = df[col_lot].apply(clean_lot_number)
+    # 주요 컬럼 매핑
+    df['Pallet_ID'] = df.iloc[:, 5].astype(str)
+    df['Material_Name'] = df.iloc[:, 11].astype(str)
+    df['Box_Qty'] = pd.to_numeric(df.iloc[:, 23], errors='coerce')
+    df['PCS'] = pd.to_numeric(df.iloc[:, 24], errors='coerce')
+    df['Lot_No'] = df.iloc[:, 30].astype(str).str.split(".").str[0]  # 소수점 뒤 제거
+    df['Right7'] = df['Pallet_ID'].apply(lambda x: str(x)[-7:])
+
+    # 순중량 ~ 사이즈 컬럼 추가 (AG~AK = 32~36)
+    df['Net_Weight'] = pd.to_numeric(df.iloc[:, 32], errors='coerce')
+    df['Gross_Weight'] = pd.to_numeric(df.iloc[:, 33], errors='coerce')
+    df['Length'] = pd.to_numeric(df.iloc[:, 34], errors='coerce')
+    df['Width'] = pd.to_numeric(df.iloc[:, 35], errors='coerce')
+    df['Height'] = pd.to_numeric(df.iloc[:, 36], errors='coerce')
 
     result_rows = []
 
-    for (palette, lot), group in df.groupby([col_palette_id, col_lot]):
-        item_name = group[col_item_name].iloc[0]
-        box_qty = group[col_box_qty].iloc[0]
+    grouped = df.groupby(['Pallet_ID', 'Lot_No'])
 
-        pcs_values = group[col_pcs].tolist()
+    for (pallet, lot), group in grouped:
+        box_qty = group['Box_Qty'].iloc[0]
+        material_name = group['Material_Name'].iloc[0]
+        right7 = group['Right7'].iloc[0]
 
-        full_box_pcs = 0
-        remaining_pcs = []
+        net_weight = group['Net_Weight'].iloc[0]
+        gross_weight = group['Gross_Weight'].iloc[0]
+        length = group['Length'].iloc[0]
+        width = group['Width'].iloc[0]
+        height = group['Height'].iloc[0]
 
-        for pcs in pcs_values:
-            if pcs == box_qty:
-                full_box_pcs += pcs
-            else:
-                full_box_pcs += pcs - (pcs % box_qty)
-                if pcs % box_qty != 0:
-                    remaining_pcs.append(pcs % box_qty)
+        full_boxes = group[group['PCS'] == box_qty]
+        partials = group[group['PCS'] != box_qty]
 
-        # 완박스 로우
-        result_rows.append({
-            "Pallet ID": palette,
-            "Item Name": item_name,
-            "Box Q'ty": box_qty,
-            "Total PCS": full_box_pcs,
-            "LOT": lot
-        })
+        full_box_total = full_boxes['PCS'].sum()
 
-        # 낱개 로우
-        if remaining_pcs:
+        if full_box_total > 0:
             result_rows.append({
-                "Pallet ID": "",
-                "Item Name": "",
-                "Box Q'ty": "",
-                "Total PCS": sum(remaining_pcs),
-                "LOT": ""
+                "Pallet_ID": pallet,
+                "Material": material_name,
+                "Right7": right7,
+                "Box_Qty": box_qty,
+                "Full_Box_Total": full_box_total,
+                "Lot_No": lot,
+                "Net_Weight": net_weight,
+                "Gross_Weight": gross_weight,
+                "Length": length,
+                "Width": width,
+                "Height": height
+            })
+
+        if not partials.empty:
+            partial_sum = partials['PCS'].sum()
+            result_rows.append({
+                "Pallet_ID": '',
+                "Material": '',
+                "Right7": '',
+                "Box_Qty": '',
+                "Full_Box_Total": partial_sum,
+                "Lot_No": '',
+                "Net_Weight": '',
+                "Gross_Weight": '',
+                "Length": '',
+                "Width": '',
+                "Height": ''
             })
 
     result_df = pd.DataFrame(result_rows)
-
     return result_df
-
-# Streamlit UI
-st.title("📦 Packing Details 자동화 프로그램")
-uploaded_file = st.file_uploader("📁 원본 Excel 파일 업로드 (.xlsx)", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
-        result_df = process_excel(uploaded_file)
+        df_result = process_file(uploaded_file)
+        st.success("✅ 변환 성공! 아래에서 다운로드 하세요.")
 
-        output_filename = "Packing_Details_Output.xlsx"
-        result_df.to_excel(output_filename, index=False)
-
-        st.success("✅ 변환 완료! 아래 버튼으로 다운로드하세요.")
-        with open(output_filename, "rb") as f:
-            st.download_button("📥 결과 파일 다운로드", f, file_name=output_filename)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_result.to_excel(writer, index=False, sheet_name="Packing Details")
+        st.download_button(
+            label="📥 변환된 파일 다운로드",
+            data=output.getvalue(),
+            file_name="Packing_Details_Output.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     except Exception as e:
-        st.error(f"❌ 에러 발생: {e}")
-
+        st.error(f"⚠️ 에러가 발생했습니다: {e}")
