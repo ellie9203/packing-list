@@ -1,31 +1,56 @@
+import streamlit as st
 import pandas as pd
-import math
+import io
 
-def process_packing_list(file_path):
-    df = pd.read_excel(file_path, dtype=str)
+def process_packing_list(file):
+    # 엑셀 파일 읽기
+    df = pd.read_excel(file, dtype=str)
 
-    # 숫자형 컬럼 처리 (빈 값은 0으로 대체)
-    df['PCS 수량'] = pd.to_numeric(df['PCS 수량'].fillna(0), errors='coerce').fillna(0).astype(int)
-    df['박스당 수량'] = pd.to_numeric(df['박스당 수량'].fillna(0), errors='coerce').fillna(0).astype(int)
+    # 필요한 열 필터링
+    required_cols = ['팔레트 ID', 'PCS 수량', '박스당 수량', '제조 Lot']
+    if not all(col in df.columns for col in required_cols):
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        st.error(f"파일에 '{', '.join(missing_cols)}' 열이 모두 포함되어야 합니다.")
+        return None
 
-    # 중복 제거 기준: 팔레트 ID + 제조 Lot + PCS 수량 + 박스당 수량
-    dedup_df = df.drop_duplicates(subset=['팔레트 ID', '제조 Lot', 'PCS 수량', '박스당 수량'])
+    # 숫자형 변환
+    df['PCS 수량'] = pd.to_numeric(df['PCS 수량'], errors='coerce').fillna(0).astype(int)
+    df['박스당 수량'] = pd.to_numeric(df['박스당 수량'], errors='coerce').fillna(0).astype(int)
 
-    # 그룹 합산
-    grouped = dedup_df.groupby(['팔레트 ID', '제조 Lot', '박스당 수량'], as_index=False)['PCS 수량'].sum()
+    # 완전 박스 수량과 낱개 수량 계산
+    df['완박스 수량'] = (df['PCS 수량'] // df['박스당 수량']) * df['박스당 수량']
+    df['낱개 수량'] = df['PCS 수량'] % df['박스당 수량']
 
-    # 완박스 수량 / 낱개 수량 분리
-    def split_pcs(row):
-        full_box_qty = (row['PCS 수량'] // row['박스당 수량']) * row['박스당 수량'] if row['박스당 수량'] > 0 else 0
-        loose_qty = row['PCS 수량'] - full_box_qty
-        return pd.Series([full_box_qty, loose_qty])
-
-    grouped[['완박스 수량', '낱개 수량']] = grouped.apply(split_pcs, axis=1)
+    # 중복 제거 및 합산
+    grouped = (
+        df.drop_duplicates(subset=['팔레트 ID', '제조 Lot', '완박스 수량', '낱개 수량'])
+          .groupby(['팔레트 ID', '제조 Lot'], as_index=False)
+          .agg({
+              '완박스 수량': 'sum',
+              '낱개 수량': 'sum'
+          })
+    )
 
     return grouped
 
-# 예시 실행
-if __name__ == '__main__':
-    result_df = process_packing_list('250728_2162725752의 복사본.xlsx')
-    result_df.to_excel('result_packing_list.xlsx', index=False)
-    print("완료: result_packing_list.xlsx 생성됨")
+# Streamlit UI
+st.title("Packing List 자동 생성기")
+st.caption("팔레트 ID + 제조 Lot 기준 자동 합산 + 낱개 집계")
+uploaded_file = st.file_uploader("\U0001F4C2 원본 파일을 업로드하세요 (.xlsx)", type=["xlsx"])
+
+if uploaded_file:
+    result_df = process_packing_list(uploaded_file)
+    if result_df is not None:
+        st.success("\u2705 계산이 완료되었습니다!")
+        st.dataframe(result_df)
+
+        # 다운로드 버튼
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            result_df.to_excel(writer, index=False)
+        st.download_button(
+            label="\U00002B07 결과 파일 다운로드",
+            data=output.getvalue(),
+            file_name="packing_list_result.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
