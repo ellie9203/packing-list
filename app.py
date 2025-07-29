@@ -1,40 +1,64 @@
-
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Packing List Tool", layout="wide")
-
 st.title("📦 Packing List 자동 생성기")
+st.caption("팔레트 ID + 제조 Lot 기준 자동 합산 + 낱개 집계")
 
-uploaded_file = st.file_uploader("📁 팔레트 ID 기준 원본 파일을 업로드하세요", type=["xlsx"])
+uploaded_file = st.file_uploader("📂 원본 파일을 업로드하세요 (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+    try:
+        df = pd.read_excel(uploaded_file, header=1)
 
-    # 팔레트 ID, 배치번호(AD열), 수량(X열)
-    if 'AD' in df.columns and 'X' in df.columns:
-        group_cols = ['팔레트ID', 'AD']
-        if '팔레트ID' not in df.columns:
-            st.error("⚠️ '팔레트ID' 열이 파일에 없습니다.")
+        # 열 이름 확인
+        required_cols = ["팔레트 ID", "PCS 수량", "박스당 수량", "제조 Lot"]
+        if not all(col in df.columns for col in required_cols):
+            st.error("❌ 파일에 '팔레트 ID', 'PCS 수량', '박스당 수량', '제조 Lot' 열이 모두 포함되어야 합니다.")
         else:
-            try:
-                df_grouped = df.groupby(group_cols)['X'].sum().reset_index()
-                df_grouped = df_grouped.rename(columns={'X': 'PCS'})
+            # 열 이름 단축
+            df = df.rename(columns={
+                "팔레트 ID": "PalletID",
+                "PCS 수량": "PCS",
+                "박스당 수량": "BoxQty",
+                "제조 Lot": "Lot"
+            })
 
-                st.success("✅ 자동 계산 완료! 아래에서 다운로드하세요.")
-                st.dataframe(df_grouped)
+            # 누락 제거 및 타입 변환
+            df = df.dropna(subset=["PalletID", "Lot", "PCS", "BoxQty"])
+            df["PCS"] = pd.to_numeric(df["PCS"], errors="coerce").fillna(0).astype(int)
+            df["BoxQty"] = pd.to_numeric(df["BoxQty"], errors="coerce").fillna(0).astype(int)
 
-                # 다운로드 버튼
-                @st.cache_data
-                def convert_df(df):
-                    return df.to_excel(index=False, engine='openpyxl')
+            # 완박스 수량 및 낱개 계산
+            df["FullBoxQty"] = (df["PCS"] // df["BoxQty"]) * df["BoxQty"]
+            df["Remain"] = df["PCS"] % df["BoxQty"]
 
-                st.download_button(
-                    label="📥 다운로드 (Excel)",
-                    data=convert_df(df_grouped),
-                    file_name="PackingList_Result.xlsx"
-                )
-            except Exception as e:
-                st.error(f"🚨 처리 중 오류 발생: {e}")
-    else:
-        st.error("⚠️ 파일에 'AD'열(배치번호), 'X'열(PCS 수량)이 포함되어야 합니다.")
+            # 팔레트 + 제조 Lot 단위로 집계
+            grouped = df.groupby(["PalletID", "Lot"]).agg({
+                "FullBoxQty": "sum",
+                "Remain": "sum"
+            }).reset_index()
+
+            grouped = grouped.rename(columns={
+                "PalletID": "팔레트 ID",
+                "Lot": "제조 Lot",
+                "FullBoxQty": "완박스 수량 합계",
+                "Remain": "낱개 수량 합계"
+            })
+
+            st.success("✅ 집계가 완료되었습니다!")
+            st.dataframe(grouped)
+
+            # 다운로드 버튼
+            @st.cache_data
+            def convert_df(df):
+                return df.to_excel(index=False, engine='openpyxl')
+
+            st.download_button(
+                label="📥 결과 파일 다운로드",
+                data=convert_df(grouped),
+                file_name="packing_list_result.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    except Exception as e:
+        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
