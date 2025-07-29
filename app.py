@@ -2,55 +2,78 @@ import streamlit as st
 import pandas as pd
 import io
 
-def process_packing_list(file):
-    # 엑셀 파일 읽기
-    df = pd.read_excel(file, dtype=str)
+st.set_page_config(page_title="📦 Packing Detail Generator", layout="wide")
+st.title("📦 Packing Detail Generator")
+st.markdown("""
+이 앱은 Raw Data 엑셀 파일을 업로드하면, 팔레트 ID + 제조 LOT 기준으로 완박스 수량과 낱개 수량을 자동으로 계산하여 포맷화된 Packing Detail 파일을 생성합니다.
+""")
 
-    # 필요한 열 필터링
-    required_cols = ['팔레트 ID', 'PCS 수량', '박스당 수량', '제조 Lot']
-    if not all(col in df.columns for col in required_cols):
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        st.error(f"파일에 '{', '.join(missing_cols)}' 열이 모두 포함되어야 합니다.")
-        return None
+uploaded_file = st.file_uploader("🗂️ 엑셀 파일을 업로드 해주세요", type=["xlsx"])
 
-    # 숫자형 변환
-    df['PCS 수량'] = pd.to_numeric(df['PCS 수량'], errors='coerce').fillna(0).astype(int)
-    df['박스당 수량'] = pd.to_numeric(df['박스당 수량'], errors='coerce').fillna(0).astype(int)
+def process_file(file):
+    df = pd.read_excel(file, header=0, engine='openpyxl')
 
-    # 완전 박스 수량과 낱개 수량 계산
-    df['완박스 수량'] = (df['PCS 수량'] // df['박스당 수량']) * df['박스당 수량']
-    df['낱개 수량'] = df['PCS 수량'] % df['박스당 수량']
+    df = df[df.iloc[:, 5].notna()]  # 팔레트 ID 비어있지 않은 행만
 
-    # 중복 제거 및 합산
-    grouped = (
-        df.drop_duplicates(subset=['팔레트 ID', '제조 Lot', '완박스 수량', '낱개 수량'])
-          .groupby(['팔레트 ID', '제조 Lot'], as_index=False)
-          .agg({
-              '완박스 수량': 'sum',
-              '낱개 수량': 'sum'
-          })
-    )
+    df['Pallet_ID'] = df.iloc[:, 5].astype(str)
+    df['Material_Name'] = df.iloc[:, 11].astype(str)
+    df['Box_Qty'] = pd.to_numeric(df.iloc[:, 23], errors='coerce')
+    df['PCS'] = pd.to_numeric(df.iloc[:, 24], errors='coerce')
+    df['Lot_No'] = df.iloc[:, 30].astype(str).str.split(".").str[0]  # 소수점 뒤 제거
+    df['Right7'] = df['Pallet_ID'].apply(lambda x: str(x)[-7:])
 
-    return grouped
+    result_rows = []
 
-# Streamlit UI
-st.title("Packing List 자동 생성기")
-st.caption("팔레트 ID + 제조 Lot 기준 자동 합산 + 낱개 집계")
-uploaded_file = st.file_uploader("\U0001F4C2 원본 파일을 업로드하세요 (.xlsx)", type=["xlsx"])
+    grouped = df.groupby(['Pallet_ID', 'Lot_No'])
 
-if uploaded_file:
-    result_df = process_packing_list(uploaded_file)
-    if result_df is not None:
-        st.success("\u2705 계산이 완료되었습니다!")
-        st.dataframe(result_df)
+    for (pallet, lot), group in grouped:
+        box_qty = group['Box_Qty'].iloc[0]
+        material_name = group['Material_Name'].iloc[0]
+        right7 = group['Right7'].iloc[0]
 
-        # 다운로드 버튼
+        full_boxes = group[group['PCS'] == box_qty]
+        partials = group[group['PCS'] != box_qty]
+
+        full_box_total = full_boxes['PCS'].sum()
+
+        if full_box_total > 0:
+            result_rows.append({
+                "Pallet_ID": pallet,
+                "Material": material_name,
+                "Right7": right7,
+                "Box_Qty": box_qty,
+                "Full_Box_Total": full_box_total,
+                "Lot_No": lot
+            })
+
+        if not partials.empty:
+            partial_sum = partials['PCS'].sum()
+            result_rows.append({
+                "Pallet_ID": '',
+                "Material": '',
+                "Right7": '',
+                "Box_Qty": '',
+                "Full_Box_Total": partial_sum,
+                "Lot_No": ''
+            })
+
+    result_df = pd.DataFrame(result_rows)
+    return result_df
+
+if uploaded_file is not None:
+    try:
+        df_result = process_file(uploaded_file)
+        st.success("✅ 변환 성공! 아래에서 다운로드 하세요.")
+
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            result_df.to_excel(writer, index=False)
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_result.to_excel(writer, index=False, sheet_name="Packing Details")
         st.download_button(
-            label="\U00002B07 결과 파일 다운로드",
+            label="📥 변환된 파일 다운로드",
             data=output.getvalue(),
-            file_name="packing_list_result.xlsx",
+            file_name="Packing_Details_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+    except Exception as e:
+        st.error(f"⚠️ 에러가 발생했습니다: {e}")
+
