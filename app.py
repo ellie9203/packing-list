@@ -24,6 +24,7 @@ def process_excel(file):
     col_net_weight = df.columns[32]   # AG
     col_gross_weight = df.columns[33] # AH
     col_width = df.columns[34]        # AI
+    col_length = df.columns[36]       # AJ
     col_height = df.columns[36]       # AK
 
     df[col_lot] = df[col_lot].apply(clean_lot_number)
@@ -39,6 +40,7 @@ def process_excel(file):
         net_weight = group[col_net_weight].iloc[0]
         gross_weight = group[col_gross_weight].iloc[0]
         width = group[col_width].iloc[0]
+        length = group[col_width].iloc[0]
         height = group[col_height].iloc[0]
 
         pcs_values = group[col_pcs].tolist()
@@ -65,6 +67,7 @@ def process_excel(file):
             "Net Weight": net_weight,
             "Gross Weight": gross_weight,
             "Width": width,
+            "Length": length,
             "Height": height
         })
 
@@ -80,6 +83,7 @@ def process_excel(file):
                 "Net Weight": "",
                 "Gross Weight": "",
                 "Width": "",
+                "Length": "",
                 "Height": ""
             })
 
