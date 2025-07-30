@@ -3,7 +3,7 @@ import pandas as pd
 
 def clean_lot_number(lot):
     try:
-        return str(int(float(lot)))
+        return f"{int(float(lot)):010d}"  # 총 10자리, 앞에 0으로 채움
     except:
         return str(lot)
 
