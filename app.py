@@ -9,17 +9,21 @@ def clean_lot_number(lot):
 
 def process_excel(file):
     df = pd.read_excel(file, header=0)
-
-    # 필요한 열 설정
     df = df.rename(columns=lambda x: str(x).strip())
     df = df[df['PCS'].notnull()]  # PCS 있는 행만
 
-    # 컬럼 이름 강제 지정
+    # 주요 컬럼들 정의
     col_palette_id = df.columns[4]    # E
     col_item_name = df.columns[10]    # K
     col_box_qty = df.columns[22]      # W
     col_pcs = df.columns[23]          # X
     col_lot = df.columns[29]          # AD
+
+    # 추가 컬럼들
+    col_net_weight = df.columns[32]   # AG
+    col_gross_weight = df.columns[33] # AH
+    col_width = df.columns[34]        # AI
+    col_height = df.columns[36]       # AK
 
     df[col_lot] = df[col_lot].apply(clean_lot_number)
 
@@ -28,6 +32,12 @@ def process_excel(file):
     for (palette, lot), group in df.groupby([col_palette_id, col_lot]):
         item_name = group[col_item_name].iloc[0]
         box_qty = group[col_box_qty].iloc[0]
+
+        # 추가 정보들 (첫 행 기준)
+        net_weight = group[col_net_weight].iloc[0]
+        gross_weight = group[col_gross_weight].iloc[0]
+        width = group[col_width].iloc[0]
+        height = group[col_height].iloc[0]
 
         pcs_values = group[col_pcs].tolist()
 
@@ -42,23 +52,31 @@ def process_excel(file):
                 if pcs % box_qty != 0:
                     remaining_pcs.append(pcs % box_qty)
 
-        # 완박스 로우
+        # 완박스 row
         result_rows.append({
             "Pallet ID": palette,
             "Item Name": item_name,
             "Box Q'ty": box_qty,
             "Total PCS": full_box_pcs,
-            "LOT": lot
+            "LOT": lot,
+            "Net Weight": net_weight,
+            "Gross Weight": gross_weight,
+            "Width": width,
+            "Height": height
         })
 
-        # 낱개 로우
+        # 낱개 row (추가정보 없음)
         if remaining_pcs:
             result_rows.append({
                 "Pallet ID": "",
                 "Item Name": "",
                 "Box Q'ty": "",
                 "Total PCS": sum(remaining_pcs),
-                "LOT": ""
+                "LOT": "",
+                "Net Weight": "",
+                "Gross Weight": "",
+                "Width": "",
+                "Height": ""
             })
 
     result_df = pd.DataFrame(result_rows)
