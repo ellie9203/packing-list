@@ -24,23 +24,23 @@ def process_excel(file):
     col_net_weight = df.columns[32]   # AG
     col_gross_weight = df.columns[33] # AH
     col_width = df.columns[34]        # AI
-    col_length = df.columns[36]       # AJ
+    col_length = df.columns[35]       # AJ
     col_height = df.columns[36]       # AK
 
     df[col_lot] = df[col_lot].apply(clean_lot_number)
 
     result_rows = []
 
-    for (palette, lot), group in df.groupby([col_palette_id, col_lot]):
+    # EDI도 포함해서 그룹핑
+    for (palette, lot, edi_number), group in df.groupby([col_palette_id, col_lot, col_edi]):
         item_name = group[col_item_name].iloc[0]
-        edi_number = group[col_edi].iloc[0]
         box_qty = group[col_box_qty].iloc[0]
 
         # 추가 정보들 (첫 행 기준)
         net_weight = group[col_net_weight].iloc[0]
         gross_weight = group[col_gross_weight].iloc[0]
         width = group[col_width].iloc[0]
-        length = group[col_width].iloc[0]
+        length = group[col_length].iloc[0]
         height = group[col_height].iloc[0]
 
         pcs_values = group[col_pcs].tolist()
@@ -88,10 +88,10 @@ def process_excel(file):
             })
 
     result_df = pd.DataFrame(result_rows)
-
     return result_df
 
 # Streamlit UI
+st.set_page_config(page_title="📦 Packing Details 자동화 프로그램", layout="centered")
 st.title("📦 Packing Details 자동화 프로그램")
 uploaded_file = st.file_uploader("📁 원본 Excel 파일 업로드 (.xlsx)", type=["xlsx"])
 
@@ -107,5 +107,6 @@ if uploaded_file is not None:
             st.download_button("📥 결과 파일 다운로드", f, file_name=output_filename)
     except Exception as e:
         st.error(f"❌ 에러 발생: {e}")
+
 
 
