@@ -14,6 +14,7 @@ def process_excel(file):
 
     # 주요 컬럼들 정의
     col_palette_id = df.columns[4]    # E
+    col_edi = df.columns[8]           # I
     col_item_name = df.columns[10]    # K
     col_box_qty = df.columns[22]      # W
     col_pcs = df.columns[23]          # X
@@ -31,6 +32,7 @@ def process_excel(file):
 
     for (palette, lot), group in df.groupby([col_palette_id, col_lot]):
         item_name = group[col_item_name].iloc[0]
+        edi_number = group[col_edi].iloc[0]
         box_qty = group[col_box_qty].iloc[0]
 
         # 추가 정보들 (첫 행 기준)
@@ -55,6 +57,7 @@ def process_excel(file):
         # 완박스 row
         result_rows.append({
             "Pallet ID": palette,
+            "EDI No.": edi_number,
             "Item Name": item_name,
             "Box Q'ty": box_qty,
             "Total PCS": full_box_pcs,
@@ -69,6 +72,7 @@ def process_excel(file):
         if remaining_pcs:
             result_rows.append({
                 "Pallet ID": "",
+                "EDI No.": "",
                 "Item Name": "",
                 "Box Q'ty": "",
                 "Total PCS": sum(remaining_pcs),
@@ -99,4 +103,5 @@ if uploaded_file is not None:
             st.download_button("📥 결과 파일 다운로드", f, file_name=output_filename)
     except Exception as e:
         st.error(f"❌ 에러 발생: {e}")
+
 
